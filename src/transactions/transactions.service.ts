@@ -23,7 +23,7 @@ export class TransactionsService {
 
   // Tạo transaction + atomic balance update + Money Pot check
   async create(userId: string, dto: any) {
-    let budgetAlert = null;
+    let budgetAlert: Awaited<ReturnType<typeof this.budgetsService.checkAndGetAlert>> = null;
 
     const transaction = await this.prisma.$transaction(async (tx) => {
       const created = await tx.transaction.create({ data: { ...dto, userId } });
@@ -43,7 +43,10 @@ export class TransactionsService {
       return created;
     });
 
-    return { data: transaction, ...(budgetAlert && { budgetAlert }) };
+    if (budgetAlert) {
+      return { data: transaction, budgetAlert };
+    }
+    return { data: transaction };
   }
 
   async update(userId: string, id: string, dto: any) {

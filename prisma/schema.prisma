@@ -1,0 +1,186 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum AccountType {
+  cash
+  bank
+  credit_card
+  e_wallet
+}
+
+enum TransactionType {
+  income
+  expense
+  transfer
+}
+
+// confirmed        = giao dịch bình thường hoặc đã được match với bank record
+// pending_bank_confirm = tạo từ app, chờ cron sync để match với bank record
+enum TransactionStatus {
+  confirmed
+  pending_bank_confirm
+}
+
+enum CategoryType {
+  income
+  expense
+}
+
+enum DebtType {
+  lend   // mình cho vay
+  borrow // mình đi vay
+}
+
+enum BudgetPeriod {
+  weekly
+  monthly
+  yearly
+}
+
+// ─────────────────────────────────────────────
+// Models
+// ─────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(uuid())
+  cassoSub  String   @unique @map("casso_sub")
+  email     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  accounts     Account[]
+  categories   Category[]
+  transactions Transaction[]
+  debts        Debt[]
+  budgets      Budget[]
+
+  @@map("users")
+}
+
+model Account {
+  id           String      @id @default(uuid())
+  userId       String      @map("user_id")
+  name         String
+  type         AccountType
+  // balance có thể âm — hợp lệ với credit_card (số dư nợ chưa thanh toán)
+  balance      Decimal     @default(0) @db.Decimal(15, 2)
+  currency     String      @default("VND")
+  // dùng để enforce rate limit 1 lần/phút khi manual sync
+  lastSyncedAt DateTime?   @map("last_synced_at")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions      Transaction[] @relation("SourceAccount")
+  incomingTransfers Transaction[] @relation("DestinationAccount")
+
+  @@map("accounts")
+}
+
+model Category {
+  id        String       @id @default(uuid())
+  userId    String       @map("user_id")
+  name      String
+  icon      String
+  type      CategoryType
+  // true = được clone từ default khi user đăng ký lần đầu
+  isDefault Boolean      @default(false) @map("is_default")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@map("categories")
+}
+
+model Transaction {
+  id          String          @id @default(uuid())
+  userId      String          @map("user_id")
+  accountId   String          @map("account_id")
+  // chỉ dùng khi type = transfer (chuyển khoản nội bộ giữa các ví)
+  toAccountId String?         @map("to_account_id")
+  type        TransactionType
+  amount      Decimal         @db.Decimal(15, 2)
+  categoryId  String?         @map("category_id")
+  note        String?
+  // URL ảnh trên Cloudflare R2
+  imageUrl    String?         @map("image_url")
+  date        DateTime
+  status      TransactionStatus @default(confirmed)
+  // set sau khi two-phase dedup match với bank record từ Casso API
+  bankReferenceId String?     @unique @map("bank_reference_id")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account   Account   @relation("SourceAccount", fields: [accountId], references: [id])
+  toAccount Account?  @relation("DestinationAccount", fields: [toAccountId], references: [id])
+  category  Category? @relation(fields: [categoryId], references: [id])
+
+  // index cho list + filter transactions theo user và ngày
+  @@index([userId, date(sort: Desc)])
+  // index cho dedup: tìm pending_bank_confirm theo account
+  @@index([accountId, status])
+  @@map("transactions")
+}
+
+model Debt {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  contactName     String    @map("contact_name")
+  type            DebtType
+  // tổng số tiền ban đầu của khoản nợ
+  amount          Decimal   @db.Decimal(15, 2)
+  // số tiền còn lại chưa trả/chưa đòi được
+  remainingAmount Decimal   @map("remaining_amount") @db.Decimal(15, 2)
+  note            String?
+  dueDate         DateTime? @map("due_date")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments DebtPayment[]
+
+  @@map("debts")
+}
+
+model DebtPayment {
+  id        String   @id @default(uuid())
+  debtId    String   @map("debt_id")
+  amount    Decimal  @db.Decimal(15, 2)
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  debt Debt @relation(fields: [debtId], references: [id], onDelete: Cascade)
+
+  @@map("debt_payments")
+}
+
+model Budget {
+  id          String       @id @default(uuid())
+  userId      String       @map("user_id")
+  categoryId  String       @map("category_id")
+  limitAmount Decimal      @map("limit_amount") @db.Decimal(15, 2)
+  period      BudgetPeriod
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  // 1 user chỉ có 1 budget pot cho mỗi category + period
+  @@unique([userId, categoryId, period])
+  @@map("budgets")
+}

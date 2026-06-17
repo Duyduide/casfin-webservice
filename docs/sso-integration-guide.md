@@ -40,6 +40,7 @@ const discovery = await res.json();
 
 **OIDC endpoint reference**
 
+
 | Endpoint       | Path                                | Method | Description                         |
 | -------------- | ----------------------------------- | ------ | ----------------------------------- |
 | Discovery      | `/.well-known/openid-configuration` | GET    | Provider metadata                   |
@@ -49,6 +50,7 @@ const discovery = await res.json();
 | JWKS           | `/jwks`                             | GET    | Public keys for JWT verification    |
 | Logout         | `/logout`                           | GET    | Browser logout                      |
 | Revoke Session | `/revoke-session`                   | POST   | Programmatic session revocation     |
+
 
 See `be/src/oidc/oidc-discovery.ts`.
 
@@ -330,17 +332,19 @@ const userinfo = await res.json();
 }
 ```
 
-| Field           | Type             | Description                                         |
-| --------------- | ---------------- | --------------------------------------------------- |
-| `sub`           | `string`         | User UUID                                           |
-| `email`         | `string`         | User email                                          |
-| `org_id`        | `string`         | Organization UUID                                   |
-| `org_kyc_level` | `number \| null` | KYC verification level — `null` or `0` = unverified |
-| `org_legal_id`  | `string \| null` | Org legal/tax ID — only set after KYC complete      |
-| `org_name`      | `string`         | Organization display name                           |
-| `org_type`      | `string`         | `BUSINESS` or `PERSONAL`                            |
-| `org_status`    | `string`         | `ACTIVE`, `INACTIVE`, or `SUSPENDED`                |
-| `role`          | `string`         | User's role in the org: `ADMIN` or `MEMBER`         |
+
+| Field           | Type            | Description                                         |
+| --------------- | --------------- | --------------------------------------------------- |
+| `sub`           | `string`        | User UUID                                           |
+| `email`         | `string`        | User email                                          |
+| `org_id`        | `string`        | Organization UUID                                   |
+| `org_kyc_level` | `number | null` | KYC verification level — `null` or `0` = unverified |
+| `org_legal_id`  | `string | null` | Org legal/tax ID — only set after KYC complete      |
+| `org_name`      | `string`        | Organization display name                           |
+| `org_type`      | `string`        | `BUSINESS` or `PERSONAL`                            |
+| `org_status`    | `string`        | `ACTIVE`, `INACTIVE`, or `SUSPENDED`                |
+| `role`          | `string`        | User's role in the org: `ADMIN` or `MEMBER`         |
+
 
 > `/userinfo` always reflects the current state from the database, unlike the JWT which is a snapshot taken at login time. Use it for security-sensitive checks (e.g. org status before a payment operation).
 
@@ -380,27 +384,31 @@ Mount this middleware before protected routes. See `be/src/lib/token-refresh-loc
 
 Casso access tokens and ID tokens include these app-useful claims:
 
-| Claim           | Type             | Description                          |
-| --------------- | ---------------- | ------------------------------------ |
-| `sub`           | `string`         | User ID                              |
-| `email`         | `string`         | User email                           |
-| `org_id`        | `string`         | Active organization ID               |
-| `org_kyc_level` | `number \| null` | Org verification level               |
-| `org_legal_id`  | `string \| null` | Legal / tax identifier after KYC     |
-| `org_name`      | `string`         | Organization display name            |
-| `org_type`      | `string`         | `BUSINESS` or `PERSONAL`             |
-| `org_status`    | `string`         | `ACTIVE`, `INACTIVE`, or `SUSPENDED` |
-| `role`          | `string`         | User's role in the org: `ADMIN` or `MEMBER` |
-| `aud`           | `string`         | Your `CLIENT_ID`                     |
-| `scope`         | `string`         | Granted scopes                       |
+
+| Claim           | Type            | Description                                 |
+| --------------- | --------------- | ------------------------------------------- |
+| `sub`           | `string`        | User ID                                     |
+| `email`         | `string`        | User email                                  |
+| `org_id`        | `string`        | Active organization ID                      |
+| `org_kyc_level` | `number | null` | Org verification level                      |
+| `org_legal_id`  | `string | null` | Legal / tax identifier after KYC            |
+| `org_name`      | `string`        | Organization display name                   |
+| `org_type`      | `string`        | `BUSINESS` or `PERSONAL`                    |
+| `org_status`    | `string`        | `ACTIVE`, `INACTIVE`, or `SUSPENDED`        |
+| `role`          | `string`        | User's role in the org: `ADMIN` or `MEMBER` |
+| `aud`           | `string`        | Your `CLIENT_ID`                            |
+| `scope`         | `string`        | Granted scopes                              |
+
 
 **KYC levels**
+
 
 | Level         | Status     | Meaning                            |
 | ------------- | ---------- | ---------------------------------- |
 | `null` or `0` | Unverified | Org exists but is not KYC-verified |
 | `1`           | Verified   | Basic KYC complete                 |
 | `2+`          | Enhanced   | Reserved for future KYC tiers      |
+
 
 **Integration guidance**
 
@@ -443,12 +451,14 @@ Browser -> Your app /auth/login
 
 ### When 2FA is triggered
 
+
 | User's 2FA setup | Device    | Result                    |
 | ---------------- | --------- | ------------------------- |
 | TOTP enabled     | Trusted   | 2FA skipped               |
 | TOTP enabled     | Untrusted | TOTP prompt shown         |
 | Email OTP only   | Trusted   | 2FA skipped               |
 | Email OTP only   | Untrusted | OTP sent and prompt shown |
+
 
 ### What integrators need to know
 
@@ -486,6 +496,7 @@ Casso supports an **org-first signup flow** where a new user creates an organiza
 
 ### Signup endpoints
 
+
 | Step | Path                  | Method | Purpose                          |
 | ---- | --------------------- | ------ | -------------------------------- |
 | 1    | `/signup`             | GET    | Show org type selection          |
@@ -493,6 +504,7 @@ Casso supports an **org-first signup flow** where a new user creates an organiza
 | 3    | `/signup/email`       | POST   | Send email OTP                   |
 | 4    | `/signup/verify-otp`  | POST   | Verify OTP                       |
 | 5    | `/signup/password`    | POST   | Set password and complete signup |
+
 
 ### Flow features
 
@@ -510,6 +522,7 @@ Casso supports an **org-first signup flow** where a new user creates an organiza
 
 ### Signup error codes
 
+
 | Error                     | HTTP | Cause                                                  |
 | ------------------------- | ---- | ------------------------------------------------------ |
 | `EMAIL_ALREADY_EXISTS`    | 400  | Email already belongs to another user                  |
@@ -520,6 +533,7 @@ Casso supports an **org-first signup flow** where a new user creates an organiza
 | `OTP_MAX_ATTEMPTS`        | 400  | Too many OTP attempts                                  |
 | `UNVERIFIED_ORG_REQUIRED` | 400  | Existing user must verify an org before adding another |
 | `SIGNUP_NOT_AVAILABLE`    | 503  | Signup infrastructure unavailable                      |
+
 
 ### Organization requirement mode
 
@@ -672,11 +686,13 @@ const { data } = await res.json();
 
 **Query parameters**
 
-| Parameter | Default | Description                                                                                          |
-| --------- | ------- | ---------------------------------------------------------------------------------------------------- |
+
+| Parameter | Default | Description                                                                                                  |
+| --------- | ------- | ------------------------------------------------------------------------------------------------------------ |
 | `scope`   | `app`   | `app` — members with an entitlement only; `org` — all org members; `all` — org members + pending invitations |
-| `limit`   | `50`    | Page size (1–100)                                                                                    |
-| `cursor`  | —       | Pagination cursor from previous response's `pagination.nextCursor`                                   |
+| `limit`   | `50`    | Page size (1–100)                                                                                            |
+| `cursor`  | —       | Pagination cursor from previous response's `pagination.nextCursor`                                           |
+
 
 **200 MEMBERS_LIST**
 
@@ -808,6 +824,7 @@ const { secret } = await fetch(`${CASSO_BASE_URL}/api/apps/${APP_ID}/webhook`, {
 // secret is returned only on first creation - store it immediately
 ```
 
+
 | Method   | Path                                         | Purpose                         |
 | -------- | -------------------------------------------- | ------------------------------- |
 | `PUT`    | `/api/apps/:appId/webhook`                   | Create or update webhook config |
@@ -817,6 +834,7 @@ const { secret } = await fetch(`${CASSO_BASE_URL}/api/apps/${APP_ID}/webhook`, {
 | `POST`   | `/api/apps/:appId/webhook/test`              | Send synthetic test event       |
 | `GET`    | `/api/apps/:appId/webhook/deliveries`        | View delivery history           |
 | `POST`   | `/api/apps/:appId/webhook/retry/:deliveryId` | Retry a failed delivery         |
+
 
 **Operational examples**
 
@@ -930,6 +948,7 @@ See `be/src/middleware/verify-webhook-signature.ts`.
 
 **Supported events**
 
+
 | Event                      | `data` fields                                          | Typical action            |
 | -------------------------- | ------------------------------------------------------ | ------------------------- |
 | `member.added`             | `userId`, `orgId`, `email`, `role`                     | Upsert org member         |
@@ -940,6 +959,7 @@ See `be/src/middleware/verify-webhook-signature.ts`.
 | `entitlement.role_updated` | `userId`, `orgId`, `appId`, `appRole`                  | Update app role           |
 | `org.verified`             | `orgId`                                                | Unlock KYC-gated features |
 | `user.updated`             | `userId`, `email`                                      | Sync profile or email     |
+
 
 ### 15d. Idempotency and retries
 
@@ -964,6 +984,7 @@ See `be/src/routes/webhook-routes.ts`.
 
 ### Authorization errors (redirect params)
 
+
 | Error code        | Cause                                   |
 | ----------------- | --------------------------------------- |
 | `access_denied`   | User is not entitled to this app        |
@@ -971,7 +992,9 @@ See `be/src/routes/webhook-routes.ts`.
 | `server_error`    | Internal provider error                 |
 | `invalid_state`   | State mismatch or expired login attempt |
 
+
 ### Token endpoint errors (JSON body)
+
 
 | Code                    | Cause                                   |
 | ----------------------- | --------------------------------------- |
@@ -981,6 +1004,7 @@ See `be/src/routes/webhook-routes.ts`.
 | `CODE_EXPIRED`          | Authorization code expired              |
 | `CODE_ALREADY_USED`     | Code already exchanged                  |
 | `INVALID_CODE_VERIFIER` | PKCE verification failed                |
+
 
 ---
 
@@ -1034,10 +1058,12 @@ WEBHOOK_SECRET=whk_abc123
 
 `jose.createRemoteJWKSet` already handles caching and key rotation well. Recommended settings:
 
+
 | Setting            | Value      | Reason                                         |
 | ------------------ | ---------- | ---------------------------------------------- |
 | `cacheMaxAge`      | 10 minutes | Good balance between freshness and performance |
 | `cooldownDuration` | 30 seconds | Prevents hammering JWKS on key misses          |
+
 
 During key rotation, Casso may serve both old and new keys for a grace period. Using `createRemoteJWKSet` lets your app handle this without custom rotation logic.
 
@@ -1081,3 +1107,4 @@ This starts the frontend at `http://localhost:5174`.
 1. Open `http://localhost:3003/auth/login` if you need to test provider-side flows directly.
 2. Open `http://localhost:5174/` to test the demo frontend.
 3. Log in through the demo app and confirm callback, session creation, refresh, and logout work.
+

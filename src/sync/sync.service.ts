@@ -3,7 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { BankhubService, BankTx } from '../bankhub/bankhub.service';
 
-const SYNC_INTERVAL_MS = 60 * 1000; // rate limit: 1 lần/phút per account
+const SYNC_INTERVAL_MS = 60 * 1000; // rate limit: 1 lần/phút per connection
 
 @Injectable()
 export class SyncService {
@@ -14,69 +14,69 @@ export class SyncService {
     private readonly bankhubService: BankhubService,
   ) {}
 
-  // Chạy mỗi 4 tiếng — iterate tất cả bank/e_wallet accounts, gọi Casso API tuần tự
   @Cron('0 */4 * * *')
-  async syncAllAccounts() {
+  async syncAllConnections() {
     this.logger.log('Bank sync cron started');
 
-    const accounts = await this.prisma.account.findMany({
-      where: { type: { in: ['bank', 'e_wallet'] } },
-    });
+    const connections = await this.prisma.bankConnection.findMany();
 
-    for (const account of accounts) {
+    for (const connection of connections) {
       try {
-        await this.syncAccount(account.id);
+        await this.syncConnection(connection.id);
       } catch (err) {
-        this.logger.error(`Sync failed for account ${account.id}: ${err.message}`);
+        this.logger.error(`Sync failed for connection ${connection.id}: ${(err as Error).message}`);
       }
     }
 
-    this.logger.log(`Bank sync cron done — ${accounts.length} accounts processed`);
+    this.logger.log(`Bank sync cron done — ${connections.length} connections processed`);
   }
 
-  // Dùng cho cả cron và manual sync từ AccountsController
-  async syncAccount(accountId: string): Promise<void> {
-    const account = await this.prisma.account.findUniqueOrThrow({ where: { id: accountId } });
+  async syncConnection(connectionId: string): Promise<void> {
+    const connection = await this.prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } });
 
-    // Enforce rate limit: skip nếu đã sync trong vòng 60s
-    if (account.lastSyncedAt) {
-      const elapsed = Date.now() - account.lastSyncedAt.getTime();
+    if (connection.lastSyncedAt) {
+      const elapsed = Date.now() - connection.lastSyncedAt.getTime();
       if (elapsed < SYNC_INTERVAL_MS) {
-        this.logger.warn(`Account ${accountId} synced ${elapsed}ms ago — skipping`);
+        this.logger.warn(`Connection ${connectionId} synced ${elapsed}ms ago — skipping`);
         return;
       }
     }
 
-    const bankTransactions = await this.fetchBankTransactions(account);
+    let syncResult;
+    try {
+      syncResult = await this.bankhubService.fetchTransactions(
+        connection.accessToken,
+        connection.lastSyncedAt ?? undefined,
+      );
+    } catch (err) {
+      this.logger.error(`BankHub fetch failed for connection ${connectionId}: ${(err as Error).message}`);
+      return;
+    }
 
-    for (const bankTx of bankTransactions) {
+    const accounts = await this.prisma.account.findMany({
+      where: { bankConnectionId: connectionId },
+    });
+    const accountMap = new Map(accounts.map((a) => [a.accountNumber, a]));
+
+    for (const bankTx of syncResult.transactions) {
+      const account = accountMap.get(bankTx.accountNumber);
+      if (!account) {
+        this.logger.warn(`No account for accountNumber ${bankTx.accountNumber} in connection ${connectionId}`);
+        continue;
+      }
       await this.deduplicateAndSave(account, bankTx);
     }
 
-    await this.prisma.account.update({
-      where: { id: accountId },
+    await this.prisma.bankConnection.update({
+      where: { id: connectionId },
       data: { lastSyncedAt: new Date() },
     });
   }
 
-  private async fetchBankTransactions(account: { id: string; bankhubAccessToken: string | null; lastSyncedAt: Date | null }): Promise<BankTx[]> {
-    if (!account.bankhubAccessToken) {
-      this.logger.warn(`Account ${account.id} has no BankHub access token — skipping fetch`);
-      return [];
-    }
-    try {
-      return await this.bankhubService.fetchTransactions(
-        account.bankhubAccessToken,
-        account.lastSyncedAt ?? undefined,
-      );
-    } catch (err) {
-      this.logger.error(`BankHub fetch failed for account ${account.id}: ${(err as Error).message}`);
-      return [];
-    }
-  }
-
-  // Two-phase dedup: tìm pending_bank_confirm match → merge, không tìm thấy → tạo mới + update balance
-  private async deduplicateAndSave(account: any, bankTx: any): Promise<void> {
+  private async deduplicateAndSave(
+    account: { id: string; userId: string; accountNumber: string | null },
+    bankTx: BankTx,
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const existing = await tx.transaction.findUnique({
         where: { bankReferenceId: bankTx.referenceId },
@@ -84,7 +84,7 @@ export class SyncService {
       if (existing) return;
 
       const fiveMinutes = 5 * 60 * 1000;
-      const bankDate = new Date(bankTx.date);
+      const bankDate = new Date(bankTx.transactionDateTime);
       const bankAmount = Math.abs(bankTx.amount);
       const txType = bankTx.amount >= 0 ? 'income' : 'expense';
       const balanceDelta = bankTx.amount >= 0 ? bankAmount : -bankAmount;
@@ -102,13 +102,20 @@ export class SyncService {
       });
 
       if (pending) {
-        // Match → confirm, balance đã được update khi user tạo pending tx
+        // Match → confirm; balance đã được update khi user tạo pending tx
         await tx.transaction.update({
           where: { id: pending.id },
-          data: { status: 'confirmed', bankReferenceId: bankTx.referenceId },
+          data: {
+            status: 'confirmed',
+            bankReferenceId: bankTx.referenceId,
+            transactionDateTime: bankDate,
+            runningBalance: bankTx.runningBalance,
+            counterAccountName: bankTx.counterAccountName,
+            counterAccountBankName: bankTx.counterAccountBankName,
+          },
         });
       } else {
-        // Giao dịch ngân hàng thuần túy → tạo mới + cập nhật balance
+        // Giao dịch thuần từ ngân hàng → tạo mới + cập nhật balance
         await tx.transaction.create({
           data: {
             userId: account.userId,
@@ -119,6 +126,10 @@ export class SyncService {
             status: 'confirmed',
             bankReferenceId: bankTx.referenceId,
             note: bankTx.description,
+            transactionDateTime: bankDate,
+            runningBalance: bankTx.runningBalance,
+            counterAccountName: bankTx.counterAccountName,
+            counterAccountBankName: bankTx.counterAccountBankName,
           },
         });
         await tx.account.update({

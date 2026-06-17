@@ -11,6 +11,7 @@ import { DebtsModule } from './debts/debts.module';
 import { BudgetsModule } from './budgets/budgets.module';
 import { StatisticsModule } from './statistics/statistics.module';
 import { SyncModule } from './sync/sync.module';
+import { BankConnectionsModule } from './bank-connections/bank-connections.module';
 import { UploadModule } from './upload/upload.module';
 import { AiModule } from './ai/ai.module';
 
@@ -28,6 +29,7 @@ import { AiModule } from './ai/ai.module';
     BudgetsModule,
     StatisticsModule,
     SyncModule,
+    BankConnectionsModule,
     UploadModule,
     AiModule,
   ],

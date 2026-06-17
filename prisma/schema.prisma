@@ -58,33 +58,38 @@ model User {
   email     String
   createdAt DateTime @default(now()) @map("created_at")
 
-  accounts     Account[]
-  categories   Category[]
-  transactions Transaction[]
-  debts        Debt[]
-  budgets      Budget[]
+  accounts         Account[]
+  categories       Category[]
+  transactions     Transaction[]
+  debts            Debt[]
+  budgets          Budget[]
+  bankConnections  BankConnection[]
+  bankLinkTokens   BankLinkToken[]
 
   @@map("users")
 }
 
 model Account {
-  id           String      @id @default(uuid())
-  userId       String      @map("user_id")
-  name         String
-  type         AccountType
+  id                String      @id @default(uuid())
+  userId            String      @map("user_id")
+  name              String
+  type              AccountType
   // balance có thể âm — hợp lệ với credit_card (số dư nợ chưa thanh toán)
-  balance      Decimal     @default(0) @db.Decimal(15, 2)
-  currency     String      @default("VND")
-  // dùng để enforce rate limit 1 lần/phút khi manual sync
-  lastSyncedAt      DateTime? @map("last_synced_at")
-  // access token từ BankHub để fetch lịch sử giao dịch (chỉ áp dụng với bank/e_wallet)
-  bankhubAccessToken String?  @map("bankhub_access_token")
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
+  balance           Decimal     @default(0) @db.Decimal(15, 2)
+  currency          String      @default("VND")
+  // FK tới BankConnection — chỉ set với tài khoản bank/e_wallet được link qua BankHub
+  bankConnectionId  String?     @map("bank_connection_id")
+  // số tài khoản ngân hàng thực tế (vd: "123456789")
+  accountNumber     String?     @map("account_number")
+  // tên chủ tài khoản từ ngân hàng (vd: "NGUYEN VAN A")
+  accountHolderName String?     @map("account_holder_name")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
 
-  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions      Transaction[] @relation("SourceAccount")
-  incomingTransfers Transaction[] @relation("DestinationAccount")
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankConnection    BankConnection? @relation(fields: [bankConnectionId], references: [id], onDelete: SetNull)
+  transactions      Transaction[]   @relation("SourceAccount")
+  incomingTransfers Transaction[]   @relation("DestinationAccount")
 
   @@map("accounts")
 }
@@ -122,7 +127,14 @@ model Transaction {
   date        DateTime
   status      TransactionStatus @default(confirmed)
   // set sau khi two-phase dedup match với bank record từ Casso API
-  bankReferenceId String?     @unique @map("bank_reference_id")
+  bankReferenceId      String?   @unique @map("bank_reference_id")
+  // datetime chính xác có timezone từ BankHub (transactionDateTime)
+  transactionDateTime  DateTime? @map("transaction_date_time")
+  // số dư tài khoản sau giao dịch này
+  runningBalance       Decimal?  @map("running_balance") @db.Decimal(15, 2)
+  // tên và ngân hàng của bên đối ứng trong giao dịch
+  counterAccountName     String? @map("counter_account_name")
+  counterAccountBankName String? @map("counter_account_bank_name")
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
@@ -186,4 +198,38 @@ model Budget {
   // 1 user chỉ có 1 budget pot cho mỗi category + period
   @@unique([userId, categoryId, period])
   @@map("budgets")
+}
+
+model BankConnection {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  // accessToken từ BankHub — dùng cho mọi lần sync, không cần user xác thực lại
+  accessToken    String    @map("access_token")
+  // thông tin fiService từ BankHub (vd: code="vietcombank", name="VCB Digibank")
+  bankCode       String    @map("bank_code")
+  bankName       String    @map("bank_name")
+  bankLogoUrl    String?   @map("bank_logo_url")
+  maxHistoryDays Int?      @map("max_history_days")
+  // dùng để enforce rate limit và truyền fromDate khi sync
+  lastSyncedAt   DateTime? @map("last_synced_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts Account[]
+
+  @@map("bank_connections")
+}
+
+model BankLinkToken {
+  id        String   @id @default(uuid())
+  // token ngẫu nhiên truyền vào redirectUri, single-use, TTL 10 phút
+  token     String   @unique @default(uuid())
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("bank_link_tokens")
 }

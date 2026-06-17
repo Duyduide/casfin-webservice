@@ -5,40 +5,79 @@ export interface BankTx {
   referenceId: string;
   // dương = tiền vào, âm = tiền ra (VND)
   amount: number;
-  date: string;
+  transactionDateTime: string;
   description: string;
+  runningBalance: number | null;
+  counterAccountName: string | null;
+  counterAccountBankName: string | null;
+  accountNumber: string;
+}
+
+export interface BankSyncResult {
+  fiService: {
+    code: string;
+    name: string;
+    logo: string;
+    maxHistoryDays: number;
+  };
+  bankAccounts: Array<{
+    accountNumber: string;
+    accountName: string;
+    balance: number;
+    currency: string;
+  }>;
+  transactions: BankTx[];
 }
 
 interface GrantTokenResponse {
-  data: { grantToken: string };
+  grantToken: string;
 }
 
 interface ExchangeResponse {
-  data: { accessToken: string };
+  accessToken: string;
 }
 
-interface BankhubTransaction {
-  id: string;
-  amount: number;
-  when: string;
-  description: string;
-  [key: string]: unknown;
-}
-
-interface TransactionsResponse {
-  data: BankhubTransaction[];
+interface TransactionsApiResponse {
+  requestId: string;
+  accounts: Array<{
+    accountNumber: string;
+    accountName: string;
+    balance: number;
+    currency: string;
+  }>;
+  transactions: Array<{
+    reference: string;
+    transactionDateTime: string;
+    amount: number;
+    description: string;
+    runningBalance: number | null;
+    accountNumber: string;
+    counterAccountName: string | null;
+    counterAccountBankName: string | null;
+    [key: string]: unknown;
+  }>;
+  fiService: {
+    id: string;
+    code: string;
+    name: string;
+    logo: string;
+    maxHistoryDays: number;
+    [key: string]: unknown;
+  };
 }
 
 @Injectable()
 export class BankhubService {
   private readonly logger = new Logger(BankhubService.name);
   private readonly baseUrl: string;
+  private readonly linkBaseUrl: string;
   private readonly clientId: string;
   private readonly secretKey: string;
   private readonly apiVersion = '2023-01-01';
 
   constructor(private readonly config: ConfigService) {
     this.baseUrl = config.getOrThrow<string>('BANKHUB_BASE_URL');
+    this.linkBaseUrl = config.getOrThrow<string>('BANKHUB_LINK_URL');
     this.clientId = config.getOrThrow<string>('CASSO_TRANSACTION_CLIENT_ID');
     this.secretKey = config.getOrThrow<string>('CASSO_TRANSACTION_SECRET_KEY');
   }
@@ -86,28 +125,46 @@ export class BankhubService {
       language: 'vi',
       redirectUri,
     });
-    const grantToken = data.data.grantToken;
-    const linkUrl = `${this.baseUrl}/link?token=${grantToken}`;
+    const grantToken = data.grantToken;
+    const linkUrl = `${this.linkBaseUrl}?grantToken=${grantToken}&redirectUri=${encodeURIComponent(redirectUri)}`;
     this.logger.log('Grant token created');
     return { grantToken, linkUrl };
   }
 
   async exchangePublicToken(publicToken: string): Promise<{ accessToken: string }> {
     const data = await this.post<ExchangeResponse>('/grant/exchange', { publicToken });
-    return { accessToken: data.data.accessToken };
+    return { accessToken: data.accessToken };
   }
 
-  async fetchTransactions(accessToken: string, fromDate?: Date): Promise<BankTx[]> {
+  async fetchTransactions(accessToken: string, fromDate?: Date): Promise<BankSyncResult> {
     const params: Record<string, string> = {};
     if (fromDate) {
       params['fromDate'] = fromDate.toISOString();
     }
-    const data = await this.get<TransactionsResponse>('/transactions', accessToken, params);
-    return data.data.map((t) => ({
-      referenceId: t.id,
-      amount: t.amount,
-      date: t.when,
-      description: t.description,
-    }));
+    const data = await this.get<TransactionsApiResponse>('/transactions', accessToken, params);
+    return {
+      fiService: {
+        code: data.fiService.code,
+        name: data.fiService.name,
+        logo: data.fiService.logo,
+        maxHistoryDays: data.fiService.maxHistoryDays,
+      },
+      bankAccounts: data.accounts.map((a) => ({
+        accountNumber: a.accountNumber,
+        accountName: a.accountName,
+        balance: a.balance,
+        currency: a.currency,
+      })),
+      transactions: data.transactions.map((t) => ({
+        referenceId: t.reference,
+        amount: t.amount,
+        transactionDateTime: t.transactionDateTime,
+        description: t.description,
+        runningBalance: t.runningBalance,
+        counterAccountName: t.counterAccountName,
+        counterAccountBankName: t.counterAccountBankName,
+        accountNumber: t.accountNumber,
+      })),
+    };
   }
 }

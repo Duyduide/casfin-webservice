@@ -11,16 +11,18 @@ Truy xuất lịch sử giao dịch tài khoản ngân hàng một cách tự đ
 
 ## Các bước tích hợp Transactions
 
-1. **Tạo phân quyền** `/grant/token` với `scopes` có giá trị là `transaction`.
-2. **Mở giao diện Cas Link** bằng `grantToken` được trả về ở bước trên.
-3. **Nhận `publicToken`** — Sau khi người dùng hoàn tất xác thực, phía giao diện sẽ nhận được một `publicToken`, dùng `publicToken` này để lấy `accessToken` cho phân quyền.
-4. **Gọi API lịch sử giao dịch** bằng `accessToken` vừa lấy được.
+1. **Tạo grant token** — Gọi `/grant/token` với `scopes: transaction` để nhận `grantToken`.
+2. **Mở CasLink UI** — Dùng `grantToken` để tạo URL và mở giao diện CasLink. User liên kết tài khoản ngân hàng tại đây; sau khi hoàn thành, `publicToken` được gửi về `redirectUri`.
+3. **Đổi `publicToken` lấy `accessToken`** — Gọi `/grant/exchange` với `publicToken`. **Lưu `accessToken` vào DB** để tái sử dụng cho các lần truy vấn sau.
+4. **Truy vấn lịch sử giao dịch** — Dùng `accessToken` đã lưu để gọi `/transactions`.
 
-> **Lưu ý:** Sử dụng `CLIENT_ID` và `SECRET_KEY` trong file `.env` với tên biến là `CASSO_TRANSACTION_CLIENT_ID` và `CASSO_TRANSACTION_SECRET_KEY`.
+> **Mấu chốt:** `accessToken` là credential dài hạn gắn với tài khoản ngân hàng của user. Cần lưu vào DB (field `bankhubAccessToken` trên bảng `Account`) ngay sau bước 3 để các lần sync sau (cron mỗi 4h hoặc manual sync) không cần user xác thực lại.
+
+> **Credentials:** Sử dụng `CLIENT_ID` và `SECRET_KEY` từ file `.env` với tên biến là `CASSO_TRANSACTION_CLIENT_ID` và `CASSO_TRANSACTION_SECRET_KEY`.
 
 ---
 
-## Bước 1 — Tạo phân quyền cho Transactions
+## Bước 1 — Tạo grant token
 
 **Endpoint:** `POST https://sandbox.bankhub.dev/grant/token`
 
@@ -51,11 +53,31 @@ axios.request(config)
   .catch((error) => console.log(error));
 ```
 
+Response trả về `grantToken` dùng cho bước tiếp theo.
+
 > Xem chi tiết API tại: <https://sandbox.bankhub.dev/docs/grant/token>
 
 ---
 
-## Bước 2 — Lấy `accessToken` từ `publicToken`
+## Bước 2 — Mở CasLink UI
+
+Dùng `grantToken` nhận được từ bước 1 để tạo URL và mở giao diện CasLink:
+
+```
+https://sandbox.bankhub.dev/link?token=<GRANT_TOKEN_HERE>
+```
+
+User thực hiện liên kết tài khoản ngân hàng trên giao diện này. Sau khi hoàn thành, BankHub redirect về `redirectUri` đã khai báo ở bước 1 kèm theo `publicToken`:
+
+```
+https://your-domain.vn/link?publicToken=<PUBLIC_TOKEN_HERE>
+```
+
+Backend nhận `publicToken` từ query string này để thực hiện bước 3.
+
+---
+
+## Bước 3 — Đổi `publicToken` lấy `accessToken`
 
 **Endpoint:** `POST https://sandbox.bankhub.dev/grant/exchange`
 
@@ -63,7 +85,7 @@ axios.request(config)
 const axios = require('axios');
 
 const data = JSON.stringify({
-  publicToken: 'bdbde2bad-7685-4f95-987c-71309a4a3',
+  publicToken: '<PUBLIC_TOKEN_HERE>',
 });
 
 const config = {
@@ -84,13 +106,17 @@ axios.request(config)
   .catch((error) => console.log(error));
 ```
 
+Response trả về `accessToken`. **Lưu ngay `accessToken` này vào DB** (field `bankhubAccessToken` trên bản ghi `Account` tương ứng) để dùng cho mọi lần truy vấn giao dịch về sau mà không cần user xác thực lại.
+
 > Xem chi tiết API tại: <https://sandbox.bankhub.dev/docs/grant/exchange>
 
 ---
 
-## Bước 3 — Gọi API lịch sử giao dịch
+## Bước 4 — Truy vấn lịch sử giao dịch
 
 **Endpoint:** `GET https://sandbox.bankhub.dev/transactions`
+
+Sử dụng `accessToken` đã lưu trong DB để gọi API này. Có thể truyền thêm `fromDate` để lấy giao dịch từ một mốc thời gian cụ thể (hữu ích cho incremental sync).
 
 ```javascript
 const axios = require('axios');
@@ -99,9 +125,12 @@ const config = {
   method: 'get',
   maxBodyLength: Infinity,
   url: 'https://sandbox.bankhub.dev/transactions',
+  params: {
+    fromDate: '2024-01-01T00:00:00.000Z', // optional — lấy giao dịch từ ngày này
+  },
   headers: {
     'X-BankHub-Api-Version': '2023-01-01',
-    Authorization: '<ACCESS_TOKEN_HERE>',
+    Authorization: '<ACCESS_TOKEN_HERE>',   // lấy từ DB, không cần user xác thực lại
     'x-client-id': '<CLIENT_ID_HERE>',
     'x-secret-key': '<SECRET_KEY_HERE>',
   },
@@ -110,4 +139,23 @@ const config = {
 axios.request(config)
   .then((response) => console.log(JSON.stringify(response.data)))
   .catch((error) => console.log(error));
+```
+
+---
+
+## Luồng trong hệ thống casfin-webservice
+
+```
+POST /api/accounts/:id/link/init
+  → BankhubService.createGrantToken()    [Bước 1]
+  → trả về { linkUrl }                   [Bước 2: client mở URL này]
+
+GET /api/accounts/link/callback?publicToken=...&accountId=...
+  → BankhubService.exchangePublicToken() [Bước 3]
+  → lưu accessToken vào Account.bankhubAccessToken (DB)
+
+POST /api/accounts/:id/sync  (hoặc cron mỗi 4h)
+  → BankhubService.fetchTransactions()  [Bước 4]
+  → dùng accessToken từ DB, không cần user làm gì thêm
+  → kết quả sync vào bảng Transaction
 ```

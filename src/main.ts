@@ -85,6 +85,14 @@ async function bootstrap() {
     console.log(`Swagger UI: http://localhost:${process.env.PORT ?? 3000}/api/docs`);
   }
 
+  // BankHub redirect về root (http://localhost:3000?publicToken=xxx) → forward sang callback
+  app.use((req: any, res: any, next: any) => {
+    if (req.path === '/' && req.query.publicToken) {
+      return res.redirect(`/api/bank-connections/callback?publicToken=${req.query.publicToken}`);
+    }
+    next();
+  });
+
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
   console.log(`CasFin API running on port ${port}`);

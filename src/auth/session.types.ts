@@ -23,7 +23,6 @@ declare module 'express-session' {
     codeVerifier: string;
     state: string;
     // BankHub link flow — xóa sau khi callback xử lý xong
-    bankhubPendingAccountId: string;
-    bankhubPendingUserId: string;
+    bankLinkToken: string;
   }
 }

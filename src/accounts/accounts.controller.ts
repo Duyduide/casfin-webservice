@@ -1,36 +1,54 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiCookieAuth, ApiParam } from '@nestjs/swagger';
 import { AccountsService } from './accounts.service';
+import { CreateAccountDto } from './dto/create-account.dto';
+import { UpdateAccountDto } from './dto/update-account.dto';
 import { SessionGuard } from '../auth/session.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { SessionUser } from '../auth/session.types';
 
+@ApiTags('accounts')
+@ApiCookieAuth()
 @Controller('accounts')
 @UseGuards(SessionGuard)
 export class AccountsController {
   constructor(private readonly accountsService: AccountsService) {}
 
   @Get()
+  @ApiOperation({ summary: 'Lấy danh sách ví của user' })
+  @ApiResponse({ status: 200, description: 'Danh sách ví' })
   findAll(@CurrentUser() user: SessionUser) {
     return this.accountsService.findAll(user.id);
   }
 
   @Post()
-  create(@Body() dto: any, @CurrentUser() user: SessionUser) {
+  @ApiOperation({ summary: 'Tạo ví mới' })
+  @ApiResponse({ status: 201, description: 'Ví đã được tạo' })
+  create(@Body() dto: CreateAccountDto, @CurrentUser() user: SessionUser) {
     return this.accountsService.create(user.id, dto);
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() dto: any, @CurrentUser() user: SessionUser) {
+  @ApiOperation({ summary: 'Cập nhật thông tin ví' })
+  @ApiParam({ name: 'id', description: 'ID của ví' })
+  @ApiResponse({ status: 200, description: 'Ví đã được cập nhật' })
+  update(@Param('id') id: string, @Body() dto: UpdateAccountDto, @CurrentUser() user: SessionUser) {
     return this.accountsService.update(user.id, id, dto);
   }
 
   @Delete(':id')
+  @ApiOperation({ summary: 'Xóa ví' })
+  @ApiParam({ name: 'id', description: 'ID của ví' })
+  @ApiResponse({ status: 200, description: 'Ví đã được xóa' })
   remove(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.accountsService.remove(user.id, id);
   }
 
-  // Manual sync — check lastSyncedAt < 60s → 429
   @Post(':id/sync')
+  @ApiOperation({ summary: 'Đồng bộ giao dịch ngân hàng thủ công' })
+  @ApiParam({ name: 'id', description: 'ID của ví ngân hàng' })
+  @ApiResponse({ status: 200, description: 'Sync thành công' })
+  @ApiResponse({ status: 429, description: 'Đã sync trong vòng 60 giây, thử lại sau' })
   sync(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.accountsService.manualSync(user.id, id);
   }

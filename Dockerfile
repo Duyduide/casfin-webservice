@@ -1,5 +1,6 @@
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 WORKDIR /app
+RUN apk add --no-cache openssl
 COPY package*.json ./
 RUN npm install
 
@@ -16,7 +17,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # ── Production ────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS production
+FROM node:24-alpine AS production
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev

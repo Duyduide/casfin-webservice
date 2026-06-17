@@ -5,9 +5,18 @@ import { OidcDiscoveryService } from './oidc-discovery.service';
 import { UsersService } from '../users/users.service';
 import { SessionUser } from './session.types';
 
+interface PkceEntry {
+  codeVerifier: string;
+  expiresAt: number;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+
+  // In-memory PKCE store: state → { codeVerifier, expiresAt }
+  // Không dùng session để tránh vấn đề persist giữa các redirect
+  private readonly pkceStore = new Map<string, PkceEntry>();
 
   constructor(
     private readonly oidcDiscovery: OidcDiscoveryService,
@@ -24,10 +33,13 @@ export class AuthService {
       .digest('base64url');
     const state = randomBytes(16).toString('hex');
 
-    // Lưu vào session — cần dùng lại ở callback
-    // Session TTL giữ ít nhất 10 phút để 2FA / org-picker flow có đủ thời gian
-    (req.session as any).codeVerifier = codeVerifier;
-    (req.session as any).state = state;
+    // Lưu codeVerifier vào memory keyed by state (TTL 10 phút)
+    this.pkceStore.set(state, {
+      codeVerifier,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+
+    this.logger.log(`[login] generated state=${state}`);
 
     const url = new URL(discovery.authorization_endpoint);
     url.searchParams.set('client_id', process.env.CLIENT_ID!);
@@ -50,20 +62,20 @@ export class AuthService {
     const session = req.session as any;
     const scheme = process.env.MOBILE_DEEP_LINK_SCHEME!;
 
-    // Validate state — chống CSRF
-    if (!state || state !== session.state) {
-      this.logger.warn('State mismatch in auth callback');
-      return `${scheme}?error=invalid_state`;
-    }
+    // Lookup PKCE entry bằng state từ Casso
+    const pkceEntry = this.pkceStore.get(state);
+    this.pkceStore.delete(state); // single-use
 
-    const codeVerifier = session.codeVerifier as string | undefined;
-    if (!codeVerifier) {
-      return `${scheme}?error=missing_verifier`;
+    this.logger.log(`[callback] received state=${state}, found=${!!pkceEntry}`);
+
+    if (!pkceEntry || Date.now() > pkceEntry.expiresAt) {
+      this.logger.warn(`PKCE state invalid or expired: state=${state}`);
+      return `${scheme}?error=invalid_state`;
     }
 
     let tokens: Awaited<ReturnType<typeof this.exchangeCode>>;
     try {
-      tokens = await this.exchangeCode(code, codeVerifier);
+      tokens = await this.exchangeCode(code, pkceEntry.codeVerifier);
     } catch (err) {
       this.logger.error(`Token exchange failed: ${err.message}`);
       return `${scheme}?error=token_exchange_failed`;
@@ -76,7 +88,7 @@ export class AuthService {
     const dbUser = await this.usersService.findOrCreate(claims.sub, claims.email);
 
     const sessionUser: SessionUser = {
-      id: dbUser.id,                        // DB UUID — dùng cho mọi DB query
+      id: dbUser.id,
       cassoSub: claims.sub,
       email: claims.email,
       orgId: claims.org_id,
@@ -93,9 +105,9 @@ export class AuthService {
     session.refreshToken = tokens.refresh_token;
     session.tokenExpiresAt = Date.now() + tokens.expires_in * 1000;
 
-    // Xóa PKCE data sau khi dùng xong
-    delete session.codeVerifier;
-    delete session.state;
+    await new Promise<void>((resolve, reject) =>
+      req.session.save((err) => (err ? reject(err) : resolve())),
+    );
 
     this.logger.log(`User ${dbUser.id} authenticated via Casso SSO`);
     return `${scheme}?success=true`;
@@ -157,8 +169,6 @@ export class AuthService {
     }>;
   }
 
-  // Decode JWT payload mà không verify — chỉ dùng để bootstrap session
-  // Verification thật sự phải dùng JWKS (xem session.guard.ts hoặc bearer middleware)
   private decodeJwtPayload(token: string): any {
     const [, payload] = token.split('.');
     return JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));

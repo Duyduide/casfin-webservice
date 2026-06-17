@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { SyncService } from './sync.service';
-import { AccountsModule } from '../accounts/accounts.module';
-import { TransactionsModule } from '../transactions/transactions.module';
+import { BankhubModule } from '../bankhub/bankhub.module';
 
 @Module({
-  imports: [AccountsModule, TransactionsModule],
+  imports: [BankhubModule],
   providers: [SyncService],
+  exports: [SyncService],
 })
 export class SyncModule {}

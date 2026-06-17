@@ -22,5 +22,8 @@ declare module 'express-session' {
     // PKCE — xóa sau khi callback xử lý xong
     codeVerifier: string;
     state: string;
+    // BankHub link flow — xóa sau khi callback xử lý xong
+    bankhubPendingAccountId: string;
+    bankhubPendingUserId: string;
   }
 }

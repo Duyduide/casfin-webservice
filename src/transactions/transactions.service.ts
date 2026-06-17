@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { BudgetsService } from '../budgets/budgets.service';
@@ -13,15 +14,50 @@ export class TransactionsService {
     private readonly aiService: AiService,
   ) {}
 
-  findAll(userId: string, filters: any) {
-    // TODO: pagination + filter by accountId, type, date range
-    return this.prisma.transaction.findMany({
-      where: { userId },
-      orderBy: { date: 'desc' },
-    });
+  async findAll(
+    userId: string,
+    filters: {
+      accountId?: string;
+      type?: string;
+      from?: string;
+      to?: string;
+      page?: string;
+      limit?: string;
+    },
+  ) {
+    const page = Math.max(1, parseInt(filters.page ?? '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(filters.limit ?? '20', 10)));
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.TransactionWhereInput = {
+      userId,
+      ...(filters.accountId && { accountId: filters.accountId }),
+      ...(filters.type && { type: filters.type as any }),
+      ...((filters.from || filters.to) && {
+        date: {
+          ...(filters.from && { gte: new Date(filters.from) }),
+          ...(filters.to && { lte: new Date(filters.to) }),
+        },
+      }),
+    };
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: { date: 'desc' },
+        skip,
+        take: limit,
+        include: { category: true },
+      }),
+      this.prisma.transaction.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
   }
 
-  // Tạo transaction + atomic balance update + Money Pot check
   async create(userId: string, dto: any) {
     let budgetAlert: Awaited<ReturnType<typeof this.budgetsService.checkAndGetAlert>> = null;
 
@@ -32,8 +68,6 @@ export class TransactionsService {
         await this.accountsService.updateBalance(tx, dto.accountId, Number(dto.amount));
       } else if (dto.type === 'expense') {
         await this.accountsService.updateBalance(tx, dto.accountId, -Number(dto.amount));
-
-        // Check Money Pot
         budgetAlert = await this.budgetsService.checkAndGetAlert(tx, userId, dto.categoryId, dto.amount);
       } else if (dto.type === 'transfer') {
         await this.accountsService.updateBalance(tx, dto.accountId, -Number(dto.amount));
@@ -50,13 +84,50 @@ export class TransactionsService {
   }
 
   async update(userId: string, id: string, dto: any) {
-    // TODO: implement — reverse old balance delta, apply new delta
-    throw new Error('Not implemented');
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.transaction.findUnique({ where: { id, userId } });
+      if (!existing) throw new NotFoundException('Transaction not found');
+
+      // Nếu amount thay đổi → điều chỉnh balance (delta = phần chênh lệch)
+      if (dto.amount !== undefined) {
+        const oldAmount = Number(existing.amount);
+        const newAmount = Number(dto.amount);
+        const delta = newAmount - oldAmount;
+
+        if (delta !== 0) {
+          if (existing.type === 'income') {
+            await this.accountsService.updateBalance(tx, existing.accountId, delta);
+          } else if (existing.type === 'expense') {
+            await this.accountsService.updateBalance(tx, existing.accountId, -delta);
+          } else if (existing.type === 'transfer') {
+            await this.accountsService.updateBalance(tx, existing.accountId, -delta);
+            await this.accountsService.updateBalance(tx, existing.toAccountId!, delta);
+          }
+        }
+      }
+
+      return tx.transaction.update({ where: { id }, data: dto });
+    });
   }
 
   async remove(userId: string, id: string) {
-    // TODO: implement — reverse balance delta trước khi xóa
-    throw new Error('Not implemented');
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.transaction.findUnique({ where: { id, userId } });
+      if (!existing) throw new NotFoundException('Transaction not found');
+
+      const amount = Number(existing.amount);
+
+      if (existing.type === 'income') {
+        await this.accountsService.updateBalance(tx, existing.accountId, -amount);
+      } else if (existing.type === 'expense') {
+        await this.accountsService.updateBalance(tx, existing.accountId, amount);
+      } else if (existing.type === 'transfer') {
+        await this.accountsService.updateBalance(tx, existing.accountId, amount);
+        await this.accountsService.updateBalance(tx, existing.toAccountId!, -amount);
+      }
+
+      return tx.transaction.delete({ where: { id } });
+    });
   }
 
   suggestCategory(userId: string, dto: { description: string; amount: number }) {

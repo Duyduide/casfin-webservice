@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -75,7 +76,9 @@ model Account {
   balance      Decimal     @default(0) @db.Decimal(15, 2)
   currency     String      @default("VND")
   // dùng để enforce rate limit 1 lần/phút khi manual sync
-  lastSyncedAt DateTime?   @map("last_synced_at")
+  lastSyncedAt      DateTime? @map("last_synced_at")
+  // access token từ BankHub để fetch lịch sử giao dịch (chỉ áp dụng với bank/e_wallet)
+  bankhubAccessToken String?  @map("bankhub_access_token")
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
 

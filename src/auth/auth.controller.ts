@@ -43,6 +43,10 @@ export class AuthController {
       return res.redirect(`${scheme}?error=${error}`);
     }
     const deepLink = await this.authService.handleCallback(code, state, req);
+    // Nếu thành công và đang test trên browser, redirect về /api/auth/me để xem thông tin user
+    if (deepLink.includes('success=true')) {
+      return res.redirect('/api/auth/me');
+    }
     return res.redirect(deepLink);
   }
 

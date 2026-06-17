@@ -27,7 +27,7 @@ export class BudgetsService {
 
   // Gọi trong TransactionsService khi tạo expense — trả về alert nếu vượt budget
   async checkAndGetAlert(
-    tx: Omit<PrismaService, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>,
+    tx: Prisma.TransactionClient,
     userId: string,
     categoryId: string,
     amount: number,

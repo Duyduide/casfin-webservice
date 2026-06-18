@@ -13,8 +13,8 @@ export class StatisticsService {
         date_trunc(${truncUnit}, date) AS period,
         type,
         SUM(amount)::bigint            AS total
-      FROM "Transaction"
-      WHERE "userId"  = ${userId}
+      FROM "transactions"
+      WHERE "user_id" = ${userId}
         AND status    = 'confirmed'
         AND type      IN ('income', 'expense')
         AND date      >= ${new Date(filters.from)}

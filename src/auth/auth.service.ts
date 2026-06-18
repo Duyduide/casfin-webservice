@@ -7,6 +7,15 @@ import { SessionUser } from './session.types';
 
 interface PkceEntry {
   codeVerifier: string;
+  redirectUri: string;
+  expiresAt: number;
+}
+
+interface HandoffEntry {
+  sessionUser: SessionUser;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
   expiresAt: number;
 }
 
@@ -14,9 +23,9 @@ interface PkceEntry {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  // In-memory PKCE store: state → { codeVerifier, expiresAt }
-  // Không dùng session để tránh vấn đề persist giữa các redirect
   private readonly pkceStore = new Map<string, PkceEntry>();
+  // Handoff store: bridge Chrome Custom Tab session → OkHttp cookie jar (Android)
+  private readonly handoffStore = new Map<string, HandoffEntry>();
 
   constructor(
     private readonly oidcDiscovery: OidcDiscoveryService,
@@ -27,15 +36,20 @@ export class AuthService {
   async buildAuthorizeUrl(req: Request): Promise<string> {
     const discovery = await this.oidcDiscovery.getConfig();
 
+    // Lấy redirectUri từ query param (frontend truyền lên để hỗ trợ Expo Go + standalone)
+    const mobileRedirectUri =
+      (req.query.redirectUri as string) || process.env.MOBILE_DEEP_LINK_SCHEME!;
+
     const codeVerifier = randomBytes(32).toString('base64url');
     const codeChallenge = createHash('sha256')
       .update(codeVerifier)
       .digest('base64url');
     const state = randomBytes(16).toString('hex');
 
-    // Lưu codeVerifier vào memory keyed by state (TTL 10 phút)
+    // Lưu codeVerifier + redirectUri vào memory keyed by state (TTL 10 phút)
     this.pkceStore.set(state, {
       codeVerifier,
+      redirectUri: mobileRedirectUri,
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
@@ -60,7 +74,6 @@ export class AuthService {
     req: Request,
   ): Promise<string> {
     const session = req.session as any;
-    const scheme = process.env.MOBILE_DEEP_LINK_SCHEME!;
 
     // Lookup PKCE entry bằng state từ Casso
     const pkceEntry = this.pkceStore.get(state);
@@ -70,15 +83,18 @@ export class AuthService {
 
     if (!pkceEntry || Date.now() > pkceEntry.expiresAt) {
       this.logger.warn(`PKCE state invalid or expired: state=${state}`);
-      return `${scheme}?error=invalid_state`;
+      const fallback = process.env.MOBILE_DEEP_LINK_SCHEME!;
+      return `${fallback}?error=invalid_state`;
     }
+
+    const redirectBase = pkceEntry.redirectUri;
 
     let tokens: Awaited<ReturnType<typeof this.exchangeCode>>;
     try {
       tokens = await this.exchangeCode(code, pkceEntry.codeVerifier);
     } catch (err) {
       this.logger.error(`Token exchange failed: ${err.message}`);
-      return `${scheme}?error=token_exchange_failed`;
+      return `${redirectBase}?error=token_exchange_failed`;
     }
 
     // Decode payload chỉ để bootstrap session — KHÔNG dùng cho auth decision
@@ -109,8 +125,18 @@ export class AuthService {
       req.session.save((err) => (err ? reject(err) : resolve())),
     );
 
+    // Tạo handoff token để bridge cookie jar giữa Chrome Custom Tab và OkHttp (Android)
+    const handoffToken = randomBytes(16).toString('hex');
+    this.handoffStore.set(handoffToken, {
+      sessionUser,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      tokenExpiresAt: Date.now() + tokens.expires_in * 1000,
+      expiresAt: Date.now() + 60_000, // TTL 60 giây
+    });
+
     this.logger.log(`User ${dbUser.id} authenticated via Casso SSO`);
-    return `${scheme}?success=true`;
+    return `${redirectBase}?handoffToken=${handoffToken}`;
   }
 
   // ── Logout: xóa session local + redirect Casso /logout ───────────────────
@@ -134,6 +160,36 @@ export class AuthService {
   // ── Switch org — khởi động lại PKCE flow mới, Casso sẽ show org picker ───
   async buildSwitchOrgUrl(req: Request): Promise<string> {
     return this.buildAuthorizeUrl(req);
+  }
+
+  // ── Đổi handoff token lấy session (Android: bridge Chrome ↔ OkHttp cookie) ─
+  async exchangeHandoff(token: string, req: Request): Promise<SessionUser | null> {
+    const entry = this.handoffStore.get(token);
+    this.handoffStore.delete(token); // single-use
+
+    if (!entry || Date.now() > entry.expiresAt) {
+      this.logger.warn(`Handoff token invalid or expired: ${token}`);
+      return null;
+    }
+
+    // Tạo session mới cho request này (OkHttp) — express-session sẽ set Set-Cookie
+    const session = req.session as any;
+    session.user = entry.sessionUser;
+    session.accessToken = entry.accessToken;
+    session.refreshToken = entry.refreshToken;
+    session.tokenExpiresAt = entry.tokenExpiresAt;
+
+    await new Promise<void>((resolve, reject) =>
+      req.session.save((err) => (err ? reject(err) : resolve())),
+    );
+
+    this.logger.log(`Handoff exchanged for user ${entry.sessionUser.id}`);
+    return entry.sessionUser;
+  }
+
+  // ── Lấy redirectUri đã lưu cho state (dùng khi Casso trả về lỗi sớm) ────
+  getRedirectUriForState(state: string): string {
+    return this.pkceStore.get(state)?.redirectUri ?? process.env.MOBILE_DEEP_LINK_SCHEME!;
   }
 
   // ─────────────────────────────────────────────────────────────────────────

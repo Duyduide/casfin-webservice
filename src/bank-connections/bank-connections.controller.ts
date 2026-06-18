@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Param, Query, Req, Res, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiCookieAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { Body, Controller, Get, Post, Param, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiCookieAuth, ApiParam, ApiQuery, ApiBody } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { BankConnectionsService } from './bank-connections.service';
@@ -51,19 +51,34 @@ export class BankConnectionsController {
       if (!linkToken) throw new Error('No pending bank link session found');
       await this.bankConnectionsService.completeBankLink(publicToken, linkToken);
       delete req.session['bankLinkToken'];
-      // Khi test trên browser, redirect về API list thay vì deep link
-      res.redirect('/api/bank-connections');
+      res.redirect(base);
     } catch (err) {
-      res.redirect(`${base}/error?error=${encodeURIComponent((err as Error).message)}`);
+      // Gửi publicToken về app để app tự retry qua apiClient (đúng session)
+      res.redirect(
+        `${base}?publicToken=${encodeURIComponent(publicToken)}&error=${encodeURIComponent((err as Error).message)}`,
+      );
     }
   }
 
   @Post(':id/sync')
   @ApiOperation({ summary: 'Sync thủ công giao dịch cho một bank connection' })
   @ApiParam({ name: 'id', description: 'ID của bank connection' })
+  @ApiBody({
+    required: false,
+    schema: {
+      properties: {
+        fromDate: { type: 'string', example: '2026-06-01', description: 'Từ ngày (YYYY-MM-DD). Bỏ qua rate limit khi có.' },
+        toDate: { type: 'string', example: '2026-06-18', description: 'Đến ngày (YYYY-MM-DD).' },
+      },
+    },
+  })
   @ApiResponse({ status: 200, description: 'Sync thành công' })
-  @ApiResponse({ status: 429, description: 'Đã sync trong vòng 60 giây, thử lại sau' })
-  sync(@Param('id') id: string, @CurrentUser() user: SessionUser) {
-    return this.bankConnectionsService.manualSync(user.id, id);
+  @ApiResponse({ status: 429, description: 'Đã sync trong vòng 60 giây, thử lại sau (chỉ khi không có dateRange)' })
+  sync(
+    @Param('id') id: string,
+    @CurrentUser() user: SessionUser,
+    @Body() body: { fromDate?: string; toDate?: string } = {},
+  ) {
+    return this.bankConnectionsService.manualSync(user.id, id, body);
   }
 }

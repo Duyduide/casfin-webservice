@@ -108,13 +108,19 @@ export class BankConnectionsService {
     );
   }
 
-  async manualSync(userId: string, connectionId: string): Promise<{ message: string }> {
+  async manualSync(
+    userId: string,
+    connectionId: string,
+    dateRange?: { fromDate?: string; toDate?: string },
+  ): Promise<{ message: string }> {
     const connection = await this.prisma.bankConnection.findUnique({ where: { id: connectionId } });
     if (!connection || connection.userId !== userId) {
       throw new NotFoundException('Bank connection not found');
     }
 
-    if (connection.lastSyncedAt) {
+    const hasDateRange = !!(dateRange?.fromDate || dateRange?.toDate);
+
+    if (!hasDateRange && connection.lastSyncedAt) {
       const elapsed = Date.now() - connection.lastSyncedAt.getTime();
       if (elapsed < SYNC_RATE_LIMIT_MS) {
         const retryAfter = Math.ceil((SYNC_RATE_LIMIT_MS - elapsed) / 1000);
@@ -122,7 +128,16 @@ export class BankConnectionsService {
       }
     }
 
-    await this.syncService.syncConnection(connectionId);
+    await this.syncService.syncConnection(
+      connectionId,
+      hasDateRange
+        ? {
+            fromDate: dateRange?.fromDate ? new Date(dateRange.fromDate) : undefined,
+            toDate: dateRange?.toDate ? new Date(dateRange.toDate) : undefined,
+            force: true,
+          }
+        : undefined,
+    );
     return { message: 'Sync completed' };
   }
 

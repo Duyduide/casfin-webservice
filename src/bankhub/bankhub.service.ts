@@ -136,12 +136,23 @@ export class BankhubService {
     return { accessToken: data.accessToken };
   }
 
-  async fetchTransactions(accessToken: string, fromDate?: Date): Promise<BankSyncResult> {
+  private toDateParam(d: Date): string {
+    return d.toISOString().slice(0, 10); // YYYY-MM-DD — BankHub expects this format
+  }
+
+  async fetchTransactions(accessToken: string, fromDate?: Date, toDate?: Date): Promise<BankSyncResult> {
     const params: Record<string, string> = {};
-    if (fromDate) {
-      params['fromDate'] = fromDate.toISOString();
-    }
+    if (fromDate) params['fromDate'] = this.toDateParam(fromDate);
+    if (toDate) params['toDate'] = this.toDateParam(toDate);
     const data = await this.get<TransactionsApiResponse>('/transactions', accessToken, params);
+
+    if (!data.fiService || !data.transactions) {
+      const errMsg = (data as unknown as Record<string, unknown>).message as string | undefined;
+      throw new InternalServerErrorException(
+        `BankHub /transactions error: ${errMsg ?? 'Unexpected response format'}`,
+      );
+    }
+
     return {
       fiService: {
         code: data.fiService.code,

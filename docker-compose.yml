@@ -30,6 +30,17 @@ services:
       db:
         condition: service_healthy
     command: npm run start:dev
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+          ignore:
+            - "**/*.spec.ts"
+        - action: rebuild
+          path: package.json
+        - action: rebuild
+          path: package-lock.json
 
 volumes:
   postgres_data:

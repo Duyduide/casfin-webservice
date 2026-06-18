@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -39,15 +39,25 @@ export class AuthController {
     @Res() res: Response,
   ) {
     if (error) {
-      const scheme = process.env.MOBILE_DEEP_LINK_SCHEME!;
-      return res.redirect(`${scheme}?error=${error}`);
+      const redirectUri = this.authService.getRedirectUriForState(state);
+      return res.redirect(`${redirectUri}?error=${error}`);
     }
     const deepLink = await this.authService.handleCallback(code, state, req);
-    // Nếu thành công và đang test trên browser, redirect về /api/auth/me để xem thông tin user
-    if (deepLink.includes('success=true')) {
-      return res.redirect('/api/auth/me');
-    }
     return res.redirect(deepLink);
+  }
+
+  @Post('handoff')
+  @ApiOperation({
+    summary: 'Đổi handoff token lấy session cookie (Android deep link workaround)',
+    description: 'Chrome Custom Tab và OkHttp dùng cookie jar riêng trên Android. Endpoint này nhận handoff token từ deep link, tạo session mới cho request OkHttp và trả về Set-Cookie.',
+  })
+  @ApiQuery({ name: 'token', required: true })
+  @ApiResponse({ status: 200, description: 'Session created, Set-Cookie returned' })
+  @ApiResponse({ status: 401, description: 'Token không hợp lệ hoặc đã hết hạn' })
+  async handoff(@Query('token') token: string, @Req() req: Request) {
+    const user = await this.authService.exchangeHandoff(token, req);
+    if (!user) throw new UnauthorizedException('Invalid or expired handoff token');
+    return user;
   }
 
   @Get('logout')

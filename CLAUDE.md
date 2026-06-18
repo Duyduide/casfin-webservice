@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Dev (Docker — recommended)
 docker compose up --build        # first run
 docker compose up                # subsequent runs
+docker compose up --watch        # Developer run
 docker compose exec api npx prisma migrate dev --name <name>
 docker compose exec api npx prisma studio
 docker compose logs -f api

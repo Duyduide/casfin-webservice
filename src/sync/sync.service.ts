@@ -31,10 +31,15 @@ export class SyncService {
     this.logger.log(`Bank sync cron done — ${connections.length} connections processed`);
   }
 
-  async syncConnection(connectionId: string): Promise<void> {
+  async syncConnection(
+    connectionId: string,
+    opts?: { fromDate?: Date; toDate?: Date; force?: boolean },
+  ): Promise<void> {
     const connection = await this.prisma.bankConnection.findUniqueOrThrow({ where: { id: connectionId } });
 
-    if (connection.lastSyncedAt) {
+    const isCustomRange = !!(opts?.fromDate || opts?.toDate);
+
+    if (!isCustomRange && !opts?.force && connection.lastSyncedAt) {
       const elapsed = Date.now() - connection.lastSyncedAt.getTime();
       if (elapsed < SYNC_INTERVAL_MS) {
         this.logger.warn(`Connection ${connectionId} synced ${elapsed}ms ago — skipping`);
@@ -42,11 +47,15 @@ export class SyncService {
       }
     }
 
+    const fetchFromDate = isCustomRange ? opts?.fromDate : (connection.lastSyncedAt ?? undefined);
+    const fetchToDate = isCustomRange ? opts?.toDate : undefined;
+
     let syncResult;
     try {
       syncResult = await this.bankhubService.fetchTransactions(
         connection.accessToken,
-        connection.lastSyncedAt ?? undefined,
+        fetchFromDate,
+        fetchToDate,
       );
     } catch (err) {
       this.logger.error(`BankHub fetch failed for connection ${connectionId}: ${(err as Error).message}`);
@@ -67,10 +76,12 @@ export class SyncService {
       await this.deduplicateAndSave(account, bankTx);
     }
 
-    await this.prisma.bankConnection.update({
-      where: { id: connectionId },
-      data: { lastSyncedAt: new Date() },
-    });
+    if (!isCustomRange) {
+      await this.prisma.bankConnection.update({
+        where: { id: connectionId },
+        data: { lastSyncedAt: new Date() },
+      });
+    }
   }
 
   private async deduplicateAndSave(

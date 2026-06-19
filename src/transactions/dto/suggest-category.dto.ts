@@ -1,8 +1,8 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, IsString, Min, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEnum, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
 
 export class SuggestCategoryDto {
-  @ApiProperty({ example: 'Grab xe về nhà', description: 'Mô tả giao dịch' })
+  @ApiProperty({ example: 'Grab xe về nhà', description: 'Ghi chú giao dịch (transaction.note)' })
   @IsString()
   @MinLength(1)
   description: string;
@@ -11,4 +11,9 @@ export class SuggestCategoryDto {
   @IsNumber()
   @Min(0)
   amount: number;
+
+  @ApiPropertyOptional({ enum: ['income', 'expense'], example: 'expense' })
+  @IsOptional()
+  @IsEnum(['income', 'expense'])
+  type?: 'income' | 'expense';
 }

@@ -18,6 +18,7 @@ export class TransactionsController {
   @Get()
   @ApiOperation({ summary: 'Lấy danh sách giao dịch (có phân trang và filter)' })
   @ApiQuery({ name: 'accountId', required: false, description: 'Lọc theo ví' })
+  @ApiQuery({ name: 'categoryId', required: false, description: 'Lọc theo danh mục' })
   @ApiQuery({ name: 'type', required: false, enum: ['income', 'expense', 'transfer'] })
   @ApiQuery({ name: 'from', required: false, description: 'Từ ngày (ISO 8601)' })
   @ApiQuery({ name: 'to', required: false, description: 'Đến ngày (ISO 8601)' })
@@ -27,13 +28,14 @@ export class TransactionsController {
   findAll(
     @CurrentUser() user: SessionUser,
     @Query('accountId') accountId?: string,
+    @Query('categoryId') categoryId?: string,
     @Query('type') type?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.transactionsService.findAll(user.id, { accountId, type, from, to, page, limit });
+    return this.transactionsService.findAll(user.id, { accountId, categoryId, type, from, to, page, limit });
   }
 
   @Post()
@@ -61,6 +63,17 @@ export class TransactionsController {
   @ApiResponse({ status: 200, description: 'Giao dịch đã xóa' })
   remove(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.transactionsService.remove(user.id, id);
+  }
+
+  @Post('classify-uncategorized')
+  @ApiOperation({ summary: 'Phân loại hàng loạt các giao dịch chưa có danh mục bằng AI (batch 10)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Kết quả phân loại',
+    schema: { example: { processed: 25, classified: 23 } },
+  })
+  classifyUncategorized(@CurrentUser() user: SessionUser) {
+    return this.transactionsService.classifyUncategorized(user.id);
   }
 
   @Post('suggest-category')

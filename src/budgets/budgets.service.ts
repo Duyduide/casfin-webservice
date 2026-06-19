@@ -6,11 +6,37 @@ import { PrismaService } from '../prisma/prisma.service';
 export class BudgetsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(userId: string) {
-    return this.prisma.budget.findMany({
+  async findAll(userId: string) {
+    const budgets = await this.prisma.budget.findMany({
       where: { userId },
       include: { category: true },
     });
+
+    if (budgets.length === 0) return [];
+
+    const now = new Date();
+
+    return Promise.all(
+      budgets.map(async (budget) => {
+        const periodStart = this.getPeriodStart(budget.period, now);
+
+        const { _sum } = await this.prisma.transaction.aggregate({
+          where: {
+            userId,
+            categoryId: budget.categoryId,
+            type: 'expense',
+            status: 'confirmed',
+            date: { gte: periodStart },
+          },
+          _sum: { amount: true },
+        });
+
+        return {
+          ...budget,
+          usedAmount: String(Number(_sum.amount ?? 0)),
+        };
+      }),
+    );
   }
 
   create(userId: string, dto: any) {

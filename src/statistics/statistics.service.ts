@@ -36,6 +36,7 @@ export class StatisticsService {
   }
 
   // Aggregate expense/income theo category, sort theo amount desc
+  // Giao dịch không có category (categoryId = null) được gom vào nhóm null để frontend hiển thị "Chưa phân loại"
   async getByCategory(userId: string, filters: { from: string; to: string; type: string }) {
     return this.prisma.transaction.groupBy({
       by: ['categoryId'],

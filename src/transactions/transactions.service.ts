@@ -18,6 +18,7 @@ export class TransactionsService {
     userId: string,
     filters: {
       accountId?: string;
+      categoryId?: string;
       type?: string;
       from?: string;
       to?: string;
@@ -32,6 +33,7 @@ export class TransactionsService {
     const where: Prisma.TransactionWhereInput = {
       userId,
       ...(filters.accountId && { accountId: filters.accountId }),
+      ...(filters.categoryId && { categoryId: filters.categoryId }),
       ...(filters.type && { type: filters.type as any }),
       ...((filters.from || filters.to) && {
         date: {
@@ -59,7 +61,23 @@ export class TransactionsService {
   }
 
   async create(userId: string, dto: any) {
-    let budgetAlert: Awaited<ReturnType<typeof this.budgetsService.checkAndGetAlert>> = null;
+    if (!dto.categoryId && dto.note && dto.type !== 'transfer') {
+      try {
+        const suggestion = await this.aiService.suggestCategory(
+          userId,
+          dto.note,
+          dto.amount,
+          dto.type,
+        );
+        if (suggestion?.categoryId) {
+          dto = { ...dto, categoryId: suggestion.categoryId };
+        }
+      } catch {
+        // AI failed — proceed without category
+      }
+    }
+
+    let budgetAlert: Awaited<ReturnType<BudgetsService['checkAndGetAlert']>> | null = null;
 
     const transaction = await this.prisma.$transaction(async (tx) => {
       const created = await tx.transaction.create({ data: { ...dto, userId } });
@@ -130,7 +148,50 @@ export class TransactionsService {
     });
   }
 
-  suggestCategory(userId: string, dto: { description: string; amount: number }) {
-    return this.aiService.suggestCategory(userId, dto.description, dto.amount);
+  async classifyUncategorized(userId: string): Promise<{ processed: number; classified: number }> {
+    const uncategorized = await this.prisma.transaction.findMany({
+      where: {
+        userId,
+        categoryId: null,
+        note: { not: null },
+        type: { not: 'transfer' as any },
+      },
+      select: { id: true, note: true, amount: true, type: true },
+    });
+
+    const processed = uncategorized.length;
+    let classified = 0;
+
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < uncategorized.length; i += BATCH_SIZE) {
+      const batch = uncategorized.slice(i, i + BATCH_SIZE);
+      const input = batch.map((tx) => ({
+        id: tx.id,
+        note: tx.note!,
+        amount: Number(tx.amount),
+        type: tx.type as 'income' | 'expense',
+      }));
+
+      const suggestions = await this.aiService.batchSuggestCategories(userId, input);
+      const toUpdate = suggestions.filter((s) => s.categoryId !== null);
+
+      if (toUpdate.length > 0) {
+        await this.prisma.$transaction(
+          toUpdate.map((s) =>
+            this.prisma.transaction.update({
+              where: { id: s.transactionId },
+              data: { categoryId: s.categoryId },
+            }),
+          ),
+        );
+        classified += toUpdate.length;
+      }
+    }
+
+    return { processed, classified };
+  }
+
+  suggestCategory(userId: string, dto: { description: string; amount: number; type?: 'income' | 'expense' }) {
+    return this.aiService.suggestCategory(userId, dto.description, dto.amount, dto.type);
   }
 }

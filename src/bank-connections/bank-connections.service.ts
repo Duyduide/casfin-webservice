@@ -42,8 +42,11 @@ export class BankConnectionsService {
     // 2. Exchange publicToken → accessToken
     const { accessToken } = await this.bankhubService.exchangePublicToken(publicToken);
 
-    // 3. Fetch bank data: fiService + bankAccounts + transactions (một lần duy nhất)
-    const syncResult = await this.bankhubService.fetchTransactions(accessToken);
+    // 3. Fetch bank data: fiService + bankAccounts + transactions (1 ngày gần nhất)
+    const toDate = new Date();
+    const fromDate = new Date(toDate);
+    fromDate.setDate(fromDate.getDate() - 1);
+    const syncResult = await this.bankhubService.fetchTransactions(accessToken, fromDate, toDate);
 
     // 4. Tạo BankConnection
     const connection = await this.prisma.bankConnection.create({

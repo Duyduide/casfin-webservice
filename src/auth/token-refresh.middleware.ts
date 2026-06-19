@@ -27,8 +27,8 @@ export class TokenRefreshMiddleware implements NestMiddleware {
     if (!session.refreshToken) return next();
 
     const expiresIn = (session.tokenExpiresAt as number) - Date.now();
-    // Refresh khi còn dưới 5 phút — đủ buffer cho request đang xử lý
-    if (expiresIn > 5 * 60 * 1000) return next();
+    // Refresh khi còn dưới 15 phút — đủ buffer nếu access token TTL của Casso ngắn (~10 phút)
+    if (expiresIn > 15 * 60 * 1000) return next();
 
     await withRefreshLock(req.sessionID, async () => {
       // Double-check sau khi acquire lock: có thể request khác đã refresh rồi
@@ -40,9 +40,12 @@ export class TokenRefreshMiddleware implements NestMiddleware {
         // Refresh token được rotate mỗi lần — lưu ngay token mới
         session.refreshToken = tokens.refresh_token ?? session.refreshToken;
         session.tokenExpiresAt = Date.now() + tokens.expires_in * 1000;
+        // Persist ngay vào DB — không chờ res.end() để tránh race condition
+        await new Promise<void>((resolve, reject) =>
+          req.session.save((err) => (err ? reject(err) : resolve())),
+        );
         this.logger.log(`Token refreshed for session ${req.sessionID}`);
       } catch (err) {
-        // Refresh thất bại — cho request đi qua, session sẽ hết hạn tự nhiên
         this.logger.warn(`Token refresh failed: ${err.message}`);
       }
     });

@@ -67,6 +67,17 @@ export class AuthController {
     return this.authService.logout(req, res);
   }
 
+  @Get('heartbeat')
+  @UseGuards(SessionGuard)
+  @ApiOperation({
+    summary: 'Giữ session sống — mobile gọi định kỳ khi app foreground',
+    description: 'TokenRefreshMiddleware tự động refresh access token nếu sắp hết hạn. Mobile gọi mỗi 5 phút để đảm bảo token không bị expire khi user không tương tác.',
+  })
+  @ApiResponse({ status: 200, description: 'Session still alive' })
+  heartbeat(@CurrentUser() user: SessionUser) {
+    return { ok: true, userId: user.id };
+  }
+
   @Get('me')
   @UseGuards(SessionGuard)
   @ApiOperation({ summary: 'Lấy thông tin user đang đăng nhập từ session' })

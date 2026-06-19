@@ -24,6 +24,18 @@ export class TransactionsController {
   @ApiQuery({ name: 'to', required: false, description: 'Đến ngày (ISO 8601)' })
   @ApiQuery({ name: 'page', required: false, description: 'Trang hiện tại, mặc định 1' })
   @ApiQuery({ name: 'limit', required: false, description: 'Số bản ghi mỗi trang, mặc định 20' })
+  @ApiQuery({
+    name: 'availableAsDebtSource',
+    required: false,
+    enum: ['lend', 'borrow'],
+    description: 'Lọc giao dịch Cho vay/Đi vay chưa được gắn vào khoản nợ nào',
+  })
+  @ApiQuery({
+    name: 'availableAsDebtPayment',
+    required: false,
+    enum: ['lend', 'borrow'],
+    description: 'Lọc giao dịch Thu nợ/Trả nợ chưa được ghi nhận thanh toán nào',
+  })
   @ApiResponse({ status: 200, description: 'Danh sách giao dịch' })
   findAll(
     @CurrentUser() user: SessionUser,
@@ -34,8 +46,13 @@ export class TransactionsController {
     @Query('to') to?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('availableAsDebtSource') availableAsDebtSource?: 'lend' | 'borrow',
+    @Query('availableAsDebtPayment') availableAsDebtPayment?: 'lend' | 'borrow',
   ) {
-    return this.transactionsService.findAll(user.id, { accountId, categoryId, type, from, to, page, limit });
+    return this.transactionsService.findAll(user.id, {
+      accountId, categoryId, type, from, to, page, limit,
+      availableAsDebtSource, availableAsDebtPayment,
+    });
   }
 
   @Post()

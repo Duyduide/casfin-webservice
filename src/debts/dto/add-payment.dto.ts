@@ -1,11 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class AddPaymentDto {
-  @ApiProperty({ example: 200000, description: 'Số tiền trả lần này (có thể partial)' })
-  @IsNumber()
-  @Min(1)
-  amount: number;
+  @ApiProperty({
+    example: 'uuid-transaction-id',
+    description: 'ID giao dịch "Thu nợ"/"Trả nợ" dùng để ghi nhận thanh toán này',
+  })
+  @IsUUID('4')
+  transactionId: string;
 
   @ApiPropertyOptional({ example: 'Trả một phần' })
   @IsString()

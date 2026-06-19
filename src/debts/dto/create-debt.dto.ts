@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { DebtType } from '@prisma/client';
-import { IsDateString, IsEnum, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { ArrayMinSize, IsDateString, IsEnum, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 
 export class CreateDebtDto {
   @ApiProperty({ example: 'Nguyễn Văn A', description: 'Tên người vay/cho vay' })
@@ -12,10 +12,14 @@ export class CreateDebtDto {
   @IsEnum(DebtType)
   type: DebtType;
 
-  @ApiProperty({ example: 500000 })
-  @IsNumber()
-  @Min(1)
-  amount: number;
+  @ApiProperty({
+    type: [String],
+    example: ['uuid-tx-1', 'uuid-tx-2'],
+    description: 'Danh sách ID giao dịch "Cho vay"/"Đi vay" làm nguồn của khoản nợ này',
+  })
+  @IsUUID('4', { each: true })
+  @ArrayMinSize(1)
+  transactionIds: string[];
 
   @ApiPropertyOptional({ example: 'Mượn tiền mua laptop' })
   @IsString()

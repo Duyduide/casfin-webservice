@@ -95,15 +95,17 @@ model Account {
 }
 
 model Category {
-  id        String       @id @default(uuid())
-  userId    String       @map("user_id")
-  name      String
-  icon      String
-  type      CategoryType
+  id            String       @id @default(uuid())
+  userId        String       @map("user_id")
+  name          String
+  icon          String
+  type          CategoryType
   // true = được clone từ default khi user đăng ký lần đầu
-  isDefault Boolean      @default(false) @map("is_default")
-  createdAt DateTime     @default(now()) @map("created_at")
-  updatedAt DateTime     @updatedAt @map("updated_at")
+  isDefault     Boolean      @default(false) @map("is_default")
+  // true = dành riêng cho luồng sổ nợ (Cho vay, Đi vay, Thu nợ, Trả nợ)
+  isDebtRelated Boolean      @default(false) @map("is_debt_related")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
@@ -135,6 +137,8 @@ model Transaction {
   // tên và ngân hàng của bên đối ứng trong giao dịch
   counterAccountName     String? @map("counter_account_name")
   counterAccountBankName String? @map("counter_account_bank_name")
+  // set khi transaction là nguồn tiền của 1 khoản nợ (Cho vay / Đi vay)
+  debtId      String?   @map("debt_id")
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
@@ -142,6 +146,8 @@ model Transaction {
   account   Account   @relation("SourceAccount", fields: [accountId], references: [id])
   toAccount Account?  @relation("DestinationAccount", fields: [toAccountId], references: [id])
   category  Category? @relation(fields: [categoryId], references: [id])
+  debt        Debt?        @relation("DebtSourceTransactions", fields: [debtId], references: [id], onDelete: SetNull)
+  debtPayment DebtPayment?
 
   // index cho list + filter transactions theo user và ngày
   @@index([userId, date(sort: Desc)])
@@ -164,20 +170,24 @@ model Debt {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  payments DebtPayment[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments     DebtPayment[]
+  transactions Transaction[] @relation("DebtSourceTransactions")
 
   @@map("debts")
 }
 
 model DebtPayment {
-  id        String   @id @default(uuid())
-  debtId    String   @map("debt_id")
-  amount    Decimal  @db.Decimal(15, 2)
-  note      String?
-  createdAt DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid())
+  debtId        String   @map("debt_id")
+  amount        Decimal  @db.Decimal(15, 2)
+  note          String?
+  // FK tới transaction "Trả nợ"/"Thu nợ" backing payment này
+  transactionId String?  @unique @map("transaction_id")
+  createdAt     DateTime @default(now()) @map("created_at")
 
-  debt Debt @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  debt        Debt         @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
   @@map("debt_payments")
 }

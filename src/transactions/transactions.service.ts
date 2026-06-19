@@ -24,6 +24,10 @@ export class TransactionsService {
       to?: string;
       page?: string;
       limit?: string;
+      // Lọc giao dịch có thể dùng làm nguồn cho debt (Cho vay/Đi vay, chưa link)
+      availableAsDebtSource?: 'lend' | 'borrow';
+      // Lọc giao dịch có thể dùng làm payment cho debt (Thu nợ/Trả nợ, chưa dùng)
+      availableAsDebtPayment?: 'lend' | 'borrow';
     },
   ) {
     const page = Math.max(1, parseInt(filters.page ?? '1', 10));
@@ -41,6 +45,10 @@ export class TransactionsService {
           ...(filters.to && { lte: new Date(filters.to) }),
         },
       }),
+      ...(filters.availableAsDebtSource === 'lend' && { debtId: null, category: { name: 'Cho vay' } }),
+      ...(filters.availableAsDebtSource === 'borrow' && { debtId: null, category: { name: 'Đi vay' } }),
+      ...(filters.availableAsDebtPayment === 'lend' && { debtPayment: null, category: { name: 'Thu nợ' } }),
+      ...(filters.availableAsDebtPayment === 'borrow' && { debtPayment: null, category: { name: 'Trả nợ' } }),
     };
 
     const [data, total] = await this.prisma.$transaction([

@@ -4,6 +4,7 @@ export const DEFAULT_CATEGORIES: {
   name: string;
   icon: string;
   type: CategoryType;
+  isDebtRelated?: boolean;
 }[] = [
   // Chi tiêu
   { name: 'Ăn uống', icon: '🍜', type: 'expense' },
@@ -22,4 +23,9 @@ export const DEFAULT_CATEGORIES: {
   { name: 'Đầu tư', icon: '📈', type: 'income' },
   { name: 'Freelance', icon: '💻', type: 'income' },
   { name: 'Giao dịch khác', icon: '💰', type: 'income' },
+  // Sổ nợ — dành cho luồng Cho vay / Đi vay / Thu nợ / Trả nợ
+  { name: 'Cho vay', icon: '🤝', type: 'expense', isDebtRelated: true },
+  { name: 'Đi vay', icon: '💸', type: 'income', isDebtRelated: true },
+  { name: 'Thu nợ', icon: '💰', type: 'income', isDebtRelated: true },
+  { name: 'Trả nợ', icon: '🏦', type: 'expense', isDebtRelated: true },
 ];

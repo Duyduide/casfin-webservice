@@ -27,8 +27,9 @@ export class TokenRefreshMiddleware implements NestMiddleware {
     if (!session.refreshToken) return next();
 
     const expiresIn = (session.tokenExpiresAt as number) - Date.now();
-    // Refresh khi còn dưới 15 phút — đủ buffer nếu access token TTL của Casso ngắn (~10 phút)
-    if (expiresIn > 15 * 60 * 1000) return next();
+    // Threshold 7 phút: token mới (10 phút) không bị refresh ngay; heartbeat mỗi 5 phút sẽ
+    // trigger refresh khi còn ~5 phút, nằm trong buffer này.
+    if (expiresIn > 7 * 60 * 1000) return next();
 
     await withRefreshLock(req.sessionID, async () => {
       // Double-check sau khi acquire lock: có thể request khác đã refresh rồi

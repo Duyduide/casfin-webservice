@@ -48,16 +48,16 @@ export class AuthController {
 
   @Post('handoff')
   @ApiOperation({
-    summary: 'Đổi handoff token lấy session cookie (Android deep link workaround)',
-    description: 'Chrome Custom Tab và OkHttp dùng cookie jar riêng trên Android. Endpoint này nhận handoff token từ deep link, tạo session mới cho request OkHttp và trả về Set-Cookie.',
+    summary: 'Đổi handoff token lấy sessionId (mobile header-based auth)',
+    description: 'Nhận handoff token từ deep link, tạo session mới và trả về { user, sessionId }. App lưu sessionId và gửi lại qua header X-Session-Id ở mọi request thay vì dựa vào cookie jar của RN.',
   })
   @ApiQuery({ name: 'token', required: true })
-  @ApiResponse({ status: 200, description: 'Session created, Set-Cookie returned' })
+  @ApiResponse({ status: 201, description: 'Session created — trả về { user, sessionId }' })
   @ApiResponse({ status: 401, description: 'Token không hợp lệ hoặc đã hết hạn' })
   async handoff(@Query('token') token: string, @Req() req: Request) {
-    const user = await this.authService.exchangeHandoff(token, req);
-    if (!user) throw new UnauthorizedException('Invalid or expired handoff token');
-    return user;
+    const result = await this.authService.exchangeHandoff(token, req);
+    if (!result) throw new UnauthorizedException('Invalid or expired handoff token');
+    return result;
   }
 
   @Get('logout')

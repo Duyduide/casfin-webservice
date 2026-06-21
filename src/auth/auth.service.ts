@@ -162,8 +162,11 @@ export class AuthService {
     return this.buildAuthorizeUrl(req);
   }
 
-  // ── Đổi handoff token lấy session (Android: bridge Chrome ↔ OkHttp cookie) ─
-  async exchangeHandoff(token: string, req: Request): Promise<SessionUser | null> {
+  // ── Đổi handoff token lấy session (mobile: trả về sessionId cho header auth) ─
+  async exchangeHandoff(
+    token: string,
+    req: Request,
+  ): Promise<{ user: SessionUser; sessionId: string } | null> {
     const entry = this.handoffStore.get(token);
     this.handoffStore.delete(token); // single-use
 
@@ -172,7 +175,7 @@ export class AuthService {
       return null;
     }
 
-    // Tạo session mới cho request này (OkHttp) — express-session sẽ set Set-Cookie
+    // Tạo session mới cho request này và persist vào store
     const session = req.session as any;
     session.user = entry.sessionUser;
     session.accessToken = entry.accessToken;
@@ -183,8 +186,9 @@ export class AuthService {
       req.session.save((err) => (err ? reject(err) : resolve())),
     );
 
+    // Trả raw sessionID cho app — app gửi lại qua header X-Session-Id ở mọi request
     this.logger.log(`Handoff exchanged for user ${entry.sessionUser.id}`);
-    return entry.sessionUser;
+    return { user: entry.sessionUser, sessionId: req.sessionID };
   }
 
   // ── Lấy redirectUri đã lưu cho state (dùng khi Casso trả về lỗi sớm) ────

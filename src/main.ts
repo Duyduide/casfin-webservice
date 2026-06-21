@@ -4,6 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import * as session from 'express-session';
 import * as connectPgSimple from 'connect-pg-simple';
+import * as cookieSignature from 'cookie-signature';
 import { Pool } from 'pg';
 import helmet from 'helmet';
 
@@ -29,6 +30,30 @@ async function bootstrap() {
 
   const PgSession = connectPgSimple(session);
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+  // ── Header-based session cho mobile ───────────────────────────────────────
+  // React Native (Android) không gắn cookie `connect.sid` ổn định vào request.
+  // App lưu sessionID (trả về từ /auth/handoff) và gửi kèm header `X-Session-Id`.
+  // Header là nguồn auth ĐÁNG TIN: nếu có header, ta GẠT BỎ mọi connect.sid cũ
+  // mà cookie jar của RN có thể gửi (stale), ký lại sessionID từ header rồi nhét
+  // vào req.headers.cookie để express-session nạp đúng session. Phải đặt TRƯỚC
+  // session middleware.
+  app.use((req, _res, next) => {
+    const raw = req.headers['x-session-id'];
+    const sid = Array.isArray(raw) ? raw[0] : raw;
+    if (sid) {
+      const signed = encodeURIComponent(
+        's:' + cookieSignature.sign(sid, process.env.SESSION_SECRET!),
+      );
+      // Loại bỏ connect.sid (stale) khỏi cookie hiện có, set lại theo header
+      const others = (req.headers.cookie ?? '')
+        .split(';')
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0 && !/^connect\.sid=/i.test(c));
+      req.headers.cookie = [...others, `connect.sid=${signed}`].join('; ');
+    }
+    next();
+  });
 
   app.use(
     session({
